@@ -1,0 +1,30 @@
+@using BTCPayServer
+@{
+    ViewData["Title"] = "LQWD Plugin Setup Required";
+}
+
+<div class="row mt-4">
+    <div class="col-12 col-md-8 offset-md-2">
+        <div class="alert alert-warning d-flex align-items-center" role="alert">
+            <i class="fa fa-exclamation-triangle me-2"></i>
+            <div>
+                This store does not have a Lightning (LND) node configured.
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">LQWD Plugin Unavailable</h5>
+                <p class="card-text">
+                    To use the LQWD plugin, you must first configure a Lightning node (LND) for this store.
+                </p>
+                <p class="card-text">
+                    You can do this in the store settings under <strong>Payment Methods</strong>.
+                </p>
+                <a class="btn btn-primary" href="/stores/@Context.GetStoreData()?.Id#LightningNode">
+                    Go to Store Settings
+                </a>
+            </div>
+        </div>
+    </div>
+</div>

@@ -1,0 +1,38 @@
+@using BTCPayServer.Plugins.Lqwd.ViewModels
+@model PluginPageViewModel
+
+<div class="modal fade" id="orderDetailsModal" tabindex="-1" role="dialog" aria-labelledby="orderDetailsModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="orderDetailsModalLabel">Order Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">x</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <p><strong>Order ID:</strong> <span id="detail-order-id"></span></p>
+                        <p><strong>LSP Balance:</strong> <span id="detail-lsp-balance"></span></p>
+                        <p><strong>Client Balance:</strong> <span id="detail-client-balance"></span></p>
+                        <p><strong>Refund Address:</strong> <span id="detail-refund-address"></span></p>
+                        <p><strong>Public Key:</strong> <span id="detail-public-key"></span></p>
+                        <p><strong>Order State:</strong> <span id="detail-order-state"></span></p>
+                    </div>
+                    <div class="col-md-6">
+                        <p><strong>Announce Channel:</strong> <span id="detail-announce-channel"></span></p>
+                        <p><strong>Channel Confirmations:</strong> <span id="detail-channel-confs"></span></p>
+                        <p><strong>Funding Confirms:</strong> <span id="detail-funding-confirms"></span></p>
+                        <p><strong>Expires At:</strong> <span id="detail-expires-at"></span></p>
+                        <p><strong>Payment Invoice:</strong></p>
+                        <textarea class="form-control" id="detail-payment-invoice" rows="5" readonly
+                            style="resize: vertical;"></textarea>
+                        <p><strong>Onchain Address:</strong> <span id="detail-onchain-address"></span></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

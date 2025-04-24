@@ -1,0 +1,353 @@
+@using BTCPayServer.Abstractions.Extensions
+@using BTCPayServer.Plugins.Lqwd.Views
+@using BTCPayServer.Plugins.Lqwd.ViewModels
+@using BTCPayServer.Client
+@using Microsoft.AspNetCore.Mvc.TagHelpers
+@using BTCPayServer.Views.Apps
+@using BTCPayServer.Services.Apps
+@using BTCPayServer
+@using BTCPayServer.Abstractions.Models
+
+@await Html.PartialAsync("OrderDetailsModal")
+@model PluginPageViewModel
+@{
+    var store = Context.GetStoreData();
+    var storeId = store?.Id;
+    @* var allowedPaymentMethods = store.GetEnabledPaymentIds()
+    .Select(pmi => new SelectListItem(pmi.ToString(), pmi.ToString()))
+    .Prepend(new SelectListItem("Any", "")); *@
+    ViewData.SetActivePage(PluginNavPages.Index, "Plugin Lqwd");
+    ViewData["NavPage"] = PluginNavPages.Index;
+}
+
+<h1>@ViewData["Title"]</h1>
+@* 
+<div class="form-group">
+    <label asp-for="PreferredTargetPaymentMethodId" class="form-label" data-required>Convert always to this payment
+        method, if possible</label>
+    <select asp-for="PreferredTargetPaymentMethodId" asp-items="allowedPaymentMethods" class="form-select"></select>
+</div> *@
+
+<button id="refreshBtn" class="btn btn-primary">Refresh LSPS Data</button>
+<div id="lsp-status-section" class="my-4">
+    <h5>LSP Connection Status</h5>
+    <div class="d-flex align-items-center">
+        <span id="lsp-connection-status" class="badge bg-secondary me-3">Checking...</span>
+        <a id="connect-lsp-btn" class="btn btn-primary btn-sm" asp-controller="UIPlugin" asp-action="ConnectToLsps"
+            asp-route-storeId="@storeId" data-bs-toggle="modal" data-bs-target="#ConfirmModal"
+            data-description="This will attempt to connect to all active LSPS URIs.">
+            Connect
+        </a>
+
+    </div>
+    <div class="text-muted small mt-2" id="lsp-refresh-countdown">
+        Checking again in 30 seconds...
+    </div>
+</div>
+@if (TempData["ConnectMessages"] is string connectMessage)
+{
+    <div id="lsp-toast" class="toast align-items-center text-white bg-success border-0 position-fixed bottom-0 end-0 m-4"
+        role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="d-flex">
+            <div class="toast-body">
+                @connectMessage
+            </div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"
+                aria-label="Close"></button>
+        </div>
+    </div>
+}
+
+
+
+
+<h3>LSPS Info:</h3>
+<pre id="apiResponse">@Model.ApiResponse</pre>
+<p class="text-muted mt-2">
+    Last updated: <span id="lastUpdated">never</span>
+</p>
+
+<button id="newOrderBtn" class="btn btn-success">New Order</button>
+
+<h3>Order History:</h3>
+<table class="table">
+    <thead>
+        <tr>
+            <th>Order ID</th>
+            <th>Client Balance</th>
+            <th>State</th>
+            <th>Action</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var order in Model.Orders)
+        {
+            <tr>
+                <td>@order.OrderId</td>
+                <td>@order.ClientBalanceSat</td>
+                <td id="status-@order.OrderId">@order.OrderState</td>
+                <td>
+                    <button class="btn btn-primary fetch-status" data-id="@order.OrderId">Fetch Status</button>
+                    <button class="btn btn-secondary btn-details" data-id="@order.OrderId">Details</button>
+
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+<!-- New Order Modal -->
+<div class="modal fade" id="newOrderModal" tabindex="-1" role="dialog" aria-labelledby="newOrderModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="newOrderModalLabel">Create New Order</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">x</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="newOrderForm">
+                    <div class="form-group">
+                        <label for="clientBalance">Client Balance (sat)</label>
+                        <input type="number" class="form-control" id="clientBalance" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="lspBalance">LSP Balance (sat)</label>
+                        <input type="number" class="form-control" id="lspBalance" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="publicKey">Public Key</label>
+                        <input type="text" class="form-control" id="publicKey" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="refundAddress">Refund Onchain Address</label>
+                        <input type="text" class="form-control" id="refundAddress" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="channelExpiry">Channel Expiry (blocks)</label>
+                        <input type="number" class="form-control" id="channelExpiry" value="144" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="token">Token (optional)</label>
+                        <input type="text" class="form-control" id="token">
+                    </div>
+                    <div class="form-group">
+                        <label for="announceChannel">Announce Channel</label>
+                        <select class="form-control" id="announceChannel">
+                            <option value="true">Yes</option>
+                            <option value="false" selected>No</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="channelConfs">Required Channel Confirmations</label>
+                        <input type="number" class="form-control" id="channelConfs" value="2" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="fundingConfirms">Funding Confirms Within Blocks</label>
+                        <input type="number" class="form-control" id="fundingConfirms" value="3" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Submit Order</button>
+                </form>
+
+            </div>
+        </div>
+    </div>
+</div>
+
+<partial name="_Confirm"
+    model="@(new ConfirmModel("Connect to LSPs", "Are you sure you want to connect?", "Connect"))" />
+
+
+<script>
+    const storeId = "@storeId";
+    const fetchIdentityPubkey = async () => {
+        try {
+            const response = await fetch(`/stores/${storeId}/plugins/lqwd/lnd/identity_pubkey`);
+            const data = await response.json();
+
+            if (data.nodePubKey) {
+                document.getElementById("publicKey").value = data.nodePubKey;
+            }
+        } catch (error) {
+            console.error("Failed to fetch node pubkey:", error);
+        }
+    };
+
+    document.addEventListener("DOMContentLoaded", function () {
+        const toastEl = document.getElementById("lsp-toast");
+        if (toastEl) {
+            const toast = new bootstrap.Toast(toastEl, {
+                autohide: true,
+                delay: 5000 // 5 seconds
+            });
+            toast.show();
+        }
+    });
+
+    // When modal is shown, fetch and fill the pubkey
+    const modal = document.getElementById("newOrderModal");
+    modal.addEventListener("shown.bs.modal", () => {
+        fetchIdentityPubkey();
+    });
+    let lspCountdownSeconds = 30;
+    let lspCountdownInterval;
+
+    function startLspCountdown() {
+        const countdownEl = document.getElementById('lsp-refresh-countdown');
+        clearInterval(lspCountdownInterval); // Reset if already running
+        lspCountdownSeconds = 30;
+
+        lspCountdownInterval = setInterval(() => {
+            lspCountdownSeconds--;
+            countdownEl.textContent = `Checking again in ${lspCountdownSeconds} second${lspCountdownSeconds !== 1 ? 's' : ''}...`;
+
+            if (lspCountdownSeconds <= 0) {
+                clearInterval(lspCountdownInterval);
+            }
+        }, 1000);
+    }
+
+    async function checkLspStatus() {
+        try {
+            const res = await fetch('/stores/@storeId/plugins/lqwd/lnd/islspsconnected');
+            const data = await res.json();
+            const statusBadge = document.getElementById('lsp-connection-status');
+            const connectBtn = document.getElementById('connect-lsp-btn');
+
+            if (data.connected === true) {
+                statusBadge.className = "badge bg-success";
+                statusBadge.textContent = "✅ Connected to LSP";
+                connectBtn.classList.add("disabled");
+                connectBtn.setAttribute("aria-disabled", "true");
+                connectBtn.style.pointerEvents = "none";
+            } else {
+                statusBadge.className = "badge bg-danger";
+                statusBadge.textContent = "❌ Not connected to LSP";
+                connectBtn.classList.remove("disabled");
+                connectBtn.setAttribute("aria-disabled", "false");
+                connectBtn.style.pointerEvents = "auto";
+            }
+        } catch (err) {
+            console.error('Connection check failed', err);
+            const statusBadge = document.getElementById('lsp-connection-status');
+            statusBadge.className = "badge bg-warning text-dark";
+            statusBadge.textContent = "⚠️ Connection check failed";
+        }
+
+        startLspCountdown(); // Restart countdown every check
+    }
+
+    // Start it initially
+    checkLspStatus();
+    setInterval(checkLspStatus, 30000);
+    document.addEventListener("DOMContentLoaded", function () {
+        document.querySelectorAll(".fetch-status").forEach(btn => {
+            btn.addEventListener("click", function () {
+                let orderId = this.getAttribute("data-id");
+                fetch(`/stores/${storeId}/plugins/lqwd/fetch-status/${orderId}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        document.getElementById(`status-${orderId}`).innerText = data.orderState;
+                    })
+                    .catch(error => console.error("Error fetching status:", error));
+            });
+        });
+
+        // Open modal when clicking "New Order" button
+        document.getElementById("newOrderBtn").addEventListener("click", function () {
+            $("#newOrderModal").modal("show");
+        });
+
+        // Submit new order form
+        document.getElementById("newOrderForm").addEventListener("submit", function (event) {
+            event.preventDefault();
+
+            let orderData = {
+                client_balance_sat: document.getElementById("clientBalance").value,
+                lsp_balance_sat: document.getElementById("lspBalance").value,
+                public_key: document.getElementById("publicKey").value,
+                refund_onchain_address: document.getElementById("refundAddress").value,
+                channel_expiry_blocks: parseInt(document.getElementById("channelExpiry").value),
+                token: document.getElementById("token").value,
+                announce_channel: document.getElementById("announceChannel").value === "true",
+                required_channel_confirmations: parseInt(document.getElementById("channelConfs").value),
+                funding_confirms_within_blocks: parseInt(document.getElementById("fundingConfirms").value)
+            };
+
+
+            fetch(`/stores/${storeId}/plugins/lqwd/create-order`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(orderData)
+            })
+                .then(response => response.json())
+                .then(data => {
+                    alert("Order Created: " + data.order_id);
+                    $("#newOrderModal").modal("hide");
+                    location.reload(); // Reload to update order history
+                })
+                .catch(error => console.error("Error creating order:", error));
+        });
+
+        // Show order details modal
+        document.querySelectorAll(".btn-details").forEach(btn => {
+            btn.addEventListener("click", function () {
+                const orderId = this.getAttribute("data-id");
+
+                fetch(`/stores/${storeId}/plugins/lqwd/fetch-status/${orderId}`)
+                    .then(res => res.json())
+                    .then(data => {
+                        // Map the JSON response into modal fields
+                        document.getElementById("detail-order-id").innerText = data.orderId;
+                        document.getElementById("detail-lsp-balance").innerText = data.lspBalanceSat;
+                        document.getElementById("detail-client-balance").innerText = data.clientBalanceSat;
+                        document.getElementById("detail-refund-address").innerText = data.refundOnchainAddress;
+                        document.getElementById("detail-public-key").innerText = data.publicKey;
+                        document.getElementById("detail-order-state").innerText = data.orderState;
+
+                        document.getElementById("detail-announce-channel").innerText = data.announceChannel;
+                        document.getElementById("detail-channel-confs").innerText = data.requiredChannelConfirmations;
+                        document.getElementById("detail-funding-confirms").innerText = data.fundingConfirmsWithinBlocks;
+                        document.getElementById("detail-expires-at").innerText = data.expiresAt;
+
+                        if (data.payment?.bolt11) {
+                            document.getElementById("detail-payment-invoice").innerText = data.payment.bolt11.invoice;
+                        }
+
+                        if (data.payment?.onchain) {
+                            document.getElementById("detail-onchain-address").innerText = data.payment.onchain.onchainAddress;
+                        }
+
+                        // Show the modal
+                        $("#orderDetailsModal").modal("show");
+                    })
+                    .catch(error => {
+                        alert("Failed to fetch order details");
+                        console.error(error);
+                    });
+            });
+        });
+    });
+
+    function fetchData() {
+        fetch(`/stores/${storeId}/plugins/lqwd/refresh`)
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById("apiResponse").innerText = JSON.stringify(data, null, 4);
+
+                const now = new Date();
+                document.getElementById("lastUpdated").innerText = now.toLocaleTimeString(); // or toLocaleString()
+            })
+            .catch(error => console.error("Error fetching API:", error));
+    }
+
+    // Fetch data when the page loads
+    document.addEventListener("DOMContentLoaded", fetchData);
+
+    // Refresh API response when button is clicked
+    document.getElementById("refreshBtn").addEventListener("click", fetchData);
+</script>

@@ -1,0 +1,40 @@
+@using BTCPayServer.Abstractions.Extensions
+@using BTCPayServer.Plugins.Lqwd.Views
+@using BTCPayServer.Plugins.Lqwd.ViewModels
+@using BTCPayServer.Lightning
+
+@model BTCPayServer.Lightning.LightningChannel[]
+
+@{
+    ViewData["Title"] = "Channels";
+    ViewData.SetActivePage(PluginNavPages.Channels, "Plugin Lqwd");
+    ViewData["NavPage"] = PluginNavPages.Channels;
+}
+
+<h1>Channels</h1>
+
+<table class="table table-bordered table-hover table-striped sortable">
+    <thead>
+        <tr>
+            <th>Channel Point</th>
+            <th>Remote Node</th>
+            <th>Capacity (sats)</th>
+            <th>Local Balance (sats)</th>
+            <th>Active</th>
+            <th>Public</th>
+        </tr>
+    </thead>
+    <tbody>
+    @foreach (var ch in Model)
+    {
+        <tr>
+            <td>@ch.ChannelPoint</td>
+            <td>@ch.RemoteNode</td>
+            <td>@ch.Capacity.ToUnit(LightMoneyUnit.Satoshi)</td>
+            <td>@ch.LocalBalance.ToUnit(LightMoneyUnit.Satoshi)</td>
+            <td>@(ch.IsActive ? "Yes" : "No")</td>
+            <td>@(ch.IsPublic ? "Yes" : "No")</td>
+        </tr>
+    }
+    </tbody>
+</table>
