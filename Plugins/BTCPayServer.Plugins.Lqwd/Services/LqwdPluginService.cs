@@ -603,8 +603,8 @@ public class LqwdPluginService
         {
             var defaultLsps = new List<PluginSettings>
         {
-            new() { Id = Guid.NewGuid().ToString(), StoreId = storeId, Key = "lsps_mutinynet", Value = "https://mutinynet-lspd.lqwd.tech" },
-            new() { Id = Guid.NewGuid().ToString(), StoreId = storeId, Key = "lsps_mainnet", Value = "https://mainnet-lspd.lqwd.tech" },
+            new() { Id = Guid.NewGuid().ToString(), StoreId = storeId, Key = "lsps_mutinynet", Value = "https://btcpay-mutinynet.lqwd.tech" },
+            new() { Id = Guid.NewGuid().ToString(), StoreId = storeId, Key = "lsps_mainnet", Value = "https://btcpay.lqwd.tech" },
             new() { Id = Guid.NewGuid().ToString(), StoreId = storeId, Key = "active_lsps", Value = "lsps_mutinynet" }
         };
 
