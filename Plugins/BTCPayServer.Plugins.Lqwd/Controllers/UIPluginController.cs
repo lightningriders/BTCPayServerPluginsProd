@@ -18,6 +18,8 @@ using BTCPayServer.Services.Invoices;
 using BTCPayServer.Services.Rates;
 using BTCPayServer.Abstractions.Models;
 using BTCPayServer.Lightning;
+using System.Linq;
+using NBitcoin;
 
 using BTCPayServer.Plugins.Lqwd.ViewModels;
 
@@ -39,7 +41,8 @@ namespace BTCPayServer.Plugins.Lqwd
         {
             var data = await _pluginService.FetchLiveApiData();
             var orders = await _pluginService.GetOrders(storeId) ?? new List<OrderData>();
-            return View(new PluginPageViewModel { ApiResponse = data, Orders = orders });
+            var channels = await _pluginService.GetChannels(storeId);
+            return View(new PluginPageViewModel { ApiResponse = data, Orders = orders, Channels = channels });
         }
 
         [HttpGet("settings")]
@@ -67,10 +70,56 @@ namespace BTCPayServer.Plugins.Lqwd
         {
             ViewData["ActivePage"] = "Channels";
 
-            var channels = await _pluginService.GetChannels(storeId);
+            var lspPubKeys = await _pluginService.GetActiveLspPubKeys();
 
-            return View("Channels", channels);
+            // Get channels (BTCPayServer.Lightning.LightningChannel[])
+            LightningChannel[] allChannels = await _pluginService.GetChannels(storeId);
+
+            var filteredChannels = new List<LightningChannel>();
+            foreach (var channel in allChannels)
+            {
+                foreach (var lsp in lspPubKeys)
+                {
+                    if (channel.RemoteNode == lsp)
+                    {
+                        filteredChannels.Add(channel);
+                        break;
+                    }
+                }
+            }
+
+            // Build ViewModel
+            var lspChannelInfos = new List<LspChannelsViewModel.LspChannelInfo>();
+            long totalLocalSats = 0;
+
+            foreach (var chan in filteredChannels)
+            {
+                long localSat = (long)chan.LocalBalance.ToUnit(LightMoneyUnit.Satoshi);
+                long capacitySat = (long)chan.Capacity.ToUnit(LightMoneyUnit.Satoshi);
+                long remoteSat = capacitySat - localSat;
+                totalLocalSats += localSat;
+
+                lspChannelInfos.Add(new LspChannelsViewModel.LspChannelInfo
+                {
+                    ChannelId = chan.ChannelPoint.ToString(),
+                    LocalBalance = chan.LocalBalance,
+                    RemoteBalance = new LightMoney(remoteSat, LightMoneyUnit.Satoshi)
+                });
+            }
+
+            var model = new LspChannelsViewModel
+            {
+                StoreId = storeId,
+                CryptoCode = "BTC",
+                IsConnectedToLsp = filteredChannels.Count > 0,
+                TotalLocalBalance = new LightMoney(totalLocalSats, LightMoneyUnit.Satoshi),
+                LspChannels = lspChannelInfos
+            };
+
+            return View("Channels", model);
         }
+
+
 
         [HttpPost("settings/activate")]
         public async Task<IActionResult> SetActiveLsps(string storeId, string newKey)
@@ -123,6 +172,22 @@ namespace BTCPayServer.Plugins.Lqwd
             // TempData["ConnectMessages"] = messages;
             TempData["ConnectMessages"] = "LSP connection attempt triggered.";
             return RedirectToAction("Index", new { storeId });
+        }
+
+        [HttpGet("payview")]
+        public IActionResult PayView(string storeId)
+        {
+            return View("PayView");
+        }
+
+        [HttpGet("generate-qr")]
+        public IActionResult GenerateQr(string data)
+        {
+            using var qrGenerator = new QRCoder.QRCodeGenerator();
+            var qrCodeData = qrGenerator.CreateQrCode(data, QRCoder.QRCodeGenerator.ECCLevel.Q);
+            var qrCode = new QRCoder.PngByteQRCode(qrCodeData);
+            var png = qrCode.GetGraphic(20);
+            return File(png, "image/png");
         }
 
 

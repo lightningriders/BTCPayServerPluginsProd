@@ -19,6 +19,7 @@ public class Plugin : BaseBTCPayServerPlugin
     {
         services.AddSingleton<IUIExtension>(new UIExtension("LqwdPluginHeaderNav", "header-nav"));
         services.AddHostedService<ApplicationPartsLogger>();
+        services.AddHostedService<ReconnectWorker>();
         services.AddHostedService<PluginMigrationRunner>();
         services.AddSingleton<LqwdPluginService>();
         // applicationBuilder.AddSingleton<ILightningConnectionStringHandler>(provider => provider.GetRequiredService<LqwdLightningConnectionStringHandler>());

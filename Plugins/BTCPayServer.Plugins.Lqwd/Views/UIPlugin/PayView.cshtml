@@ -1,0 +1,84 @@
+@{
+    ViewData["Title"] = "Pay Now";
+    Layout = "_Layout";
+}
+
+<div id="app" class="public-page-wrap p-4">
+    <main class="tile">
+        <section id="payment" class="text-center">
+            <h2>Pay <span>{{ amount }}</span> sats</h2>
+
+            <div class="btcpay-pills d-flex justify-content-center gap-2 mb-3">
+                <button class="btcpay-pill" @@:class="{ active: activeTab === 'lightning' }" @@click="activeTab = 'lightning'">Lightning</button>
+                <button class="btcpay-pill" @@:class="{ active: activeTab === 'onchain' }" @@click="activeTab = 'onchain'">Bitcoin</button>
+            </div>
+
+            <div class="tab-content p-3">
+                <div v-show="activeTab === 'lightning'">
+                    <div class="mb-2">
+                        <strong>Lightning Invoice</strong>
+                    </div>
+                    <code id="ln-invoice">{{ lightningInvoice }}</code>
+                    <button class="btn btn-sm btn-outline-primary ms-2" @@click="copy(lightningInvoice)">Copy</button>
+                    <div class="qr-container mt-3">
+                        <img :src="qrSrc(lightningInvoice)" alt="LN QR" width="220" height="220" />
+                    </div>
+                </div>
+
+                <div v-show="activeTab === 'onchain'">
+                    <div class="mb-2">
+                        <strong>Bitcoin Address</strong>
+                    </div>
+                    <code id="btc-address">{{ onchainAddress }}</code>
+                    <button class="btn btn-sm btn-outline-primary ms-2" @@click="copy(onchainAddress)">Copy</button>
+                    <div class="qr-container mt-3">
+                        <img :src="qrSrc(onchainAddress)" alt="BTC QR" width="220" height="220" />
+                    </div>
+                </div>
+            </div>
+
+            <button class="btn btn-success mt-4 px-5" @@click="goBack">I have copied</button>
+        </section>
+    </main>
+</div>
+
+@section Scripts {
+    <script src="/vendor/vuejs/vue.min.js"></script>
+    <script>
+        new Vue({
+            el: '#app',
+            data() {
+                return {
+                    amount: '',
+                    lightningInvoice: '',
+                    onchainAddress: '',
+                    returnUrl: '',
+                    activeTab: 'lightning'
+                };
+            },
+            methods: {
+                qrSrc(data) {
+                    return `/generate-qr?data=${encodeURIComponent(data)}`;
+                },
+                copy(text) {
+                    navigator.clipboard.writeText(text).then(() => {
+                        alert("Copied!");
+                    });
+                },
+                goBack() {
+                    window.location.href = this.returnUrl || '/';
+                },
+                loadFromParams() {
+                    const params = new URLSearchParams(window.location.search);
+                    this.amount = params.get('amount') || '';
+                    this.lightningInvoice = params.get('lightningInvoice') || '';
+                    this.onchainAddress = params.get('onchainAddress') || '';
+                    this.returnUrl = params.get('returnUrl') || '';
+                }
+            },
+            mounted() {
+                this.loadFromParams();
+            }
+        });
+    </script>
+}

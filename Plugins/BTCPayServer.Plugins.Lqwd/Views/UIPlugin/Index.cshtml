@@ -7,6 +7,7 @@
 @using BTCPayServer.Services.Apps
 @using BTCPayServer
 @using BTCPayServer.Abstractions.Models
+@using BTCPayServer.Lightning
 
 @await Html.PartialAsync("OrderDetailsModal")
 @model PluginPageViewModel
@@ -95,6 +96,35 @@
         }
     </tbody>
 </table>
+
+<h1>Channels</h1>
+
+<table class="table table-bordered table-hover table-striped sortable">
+    <thead>
+        <tr>
+            <th>Channel Point</th>
+            <th>Remote Node</th>
+            <th>Capacity (sats)</th>
+            <th>Local Balance (sats)</th>
+            <th>Active</th>
+            <th>Public</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var ch in Model.Channels)
+        {
+            <tr>
+                <td>@ch.ChannelPoint</td>
+                <td>@ch.RemoteNode</td>
+                <td>@ch.Capacity.ToUnit(LightMoneyUnit.Satoshi)</td>
+                <td>@ch.LocalBalance.ToUnit(LightMoneyUnit.Satoshi)</td>
+                <td>@(ch.IsActive ? "Yes" : "No")</td>
+                <td>@(ch.IsPublic ? "Yes" : "No")</td>
+            </tr>
+        }
+    </tbody>
+</table>
+
 
 <!-- New Order Modal -->
 <div class="modal fade" id="newOrderModal" tabindex="-1" role="dialog" aria-labelledby="newOrderModalLabel"

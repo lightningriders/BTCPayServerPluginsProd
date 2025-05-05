@@ -5,6 +5,7 @@ using BTCPayServer.Plugins.Lqwd.Data;
 using BTCPayServer.Plugins.Lqwd.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Configuration;
 using BTCPayServer.Services.Stores;
 using BTCPayServer.Services.Wallets;
 using BTCPayServer.Payments.Lightning;
@@ -27,6 +28,8 @@ using System.Linq;
 using Newtonsoft.Json.Linq;
 using BTCPayServer.Lightning.LND;
 using BTCPayServer.Lightning;
+using NBitcoin;
+
 
 namespace BTCPayServer.Plugins.Lqwd.Services;
 
@@ -42,8 +45,12 @@ public class LqwdPluginService
     // private readonly IAuthorizationService _authorizationService;
     // private readonly EventAggregator _eventAggregator;
     // private readonly InvoiceRepository _invoiceRepository;
+
+    private readonly BTCPayServerEnvironment _env;
     private readonly BTCPayNetwork _network;
     private readonly IServiceProvider _serviceProvider;
+
+    private readonly IConfiguration _configuration;
     private readonly IOptions<LightningNetworkOptions> _lightningNetworkOptions;
 
     private readonly LightningClientFactoryService _lightningClientFactory;
@@ -51,7 +58,9 @@ public class LqwdPluginService
 
     public LqwdPluginService(HttpClient httpClient, StoreRepository storeRepository
     , BTCPayNetworkProvider btcPayNetworkProvider
+    , BTCPayServerEnvironment env
     , LqwdPluginDbContextFactory pluginDbContextFactory
+    , IConfiguration configuration
     , LightningClientFactoryService lightningClientFactory
     , ILogger<LqwdPluginService> logger
     , IServiceProvider serviceProvider
@@ -59,6 +68,8 @@ public class LqwdPluginService
     , PaymentMethodHandlerDictionary paymentMethodHandlerDictionary)
     {
         _logger = logger;
+        _env = env;
+        _configuration = configuration;
         _network = btcPayNetworkProvider.BTC;
         _httpClient = httpClient;
         _pluginDbContextFactory = pluginDbContextFactory;
@@ -71,37 +82,44 @@ public class LqwdPluginService
 
     public async Task<string?> GetActiveLspsUrl()
     {
-        try
+        var network = _configuration.GetValue<string>("network")?.ToLowerInvariant() ?? "mainnet";
+
+        string activeLspLink = network switch
         {
-            await using var context = _pluginDbContextFactory.CreateContext();
-            var activeSetting = await context.Settings
-                .FirstOrDefaultAsync(s => s.Key == "active_lsps");
+            "mutinynet" => "https://btcpay-mutinynet.lqwd.tech",
+            "regtest" => "http://localhost:9000",
+            "testnet" => "https://lsp-testnet.lqwd.tech",
+            "mainnet" => "https://btcpay.lqwd.tech",
+            _ => throw new Exception($"Unsupported network: {network}")
+        };
 
-            if (activeSetting == null || string.IsNullOrEmpty(activeSetting.Value))
-            {
-                _logger.LogWarning("active_lsps not set in database.");
-                return null;
-            }
+        _logger.LogInformation($"[LQWD] Active LSPS URL for network '{network}': {activeLspLink}");
 
-            var activeKey = activeSetting.Value;
-
-            var urlSetting = await context.Settings
-                .FirstOrDefaultAsync(s => s.Key == activeKey);
-
-            if (urlSetting == null || string.IsNullOrEmpty(urlSetting.Value))
-            {
-                _logger.LogWarning($"No LSPS URL found for key: {activeKey}");
-                return null;
-            }
-
-            return urlSetting.Value.TrimEnd('/');
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to retrieve active LSPS URL");
-            return null;
-        }
+        return activeLspLink.TrimEnd('/');
     }
+
+
+
+    public async Task<List<PubKey>> GetActiveLspPubKeys()
+    {
+        var network = _configuration.GetValue<string>("network")?.ToLowerInvariant() ?? "mainnet";
+
+        var pubKeys = new List<PubKey>();
+
+        var pubKey = network switch
+        {
+            "mutinynet" => "0220566172d9e324b41ec6f74ca44d377d3faf72ddb310fd263e6d5bcde4882492", // example
+            "regtest" => "0220566172d9e324b41ec6f74ca44d377d3faf72ddb310fd263e6d5bcde4882492",
+            "testnet" => "0220566172d9e324b41ec6f74ca44d377d3faf72ddb310fd263e6d5bcde4882492",
+            "mainnet" => "02cc611df622184f8c23639cf51b75001c07af0731f5569e87474ba3cc44f079ee",
+            _ => throw new Exception($"Unsupported network: {network}")
+        };
+
+        pubKeys.Add(new PubKey(pubKey));
+        return pubKeys;
+    }
+
+
 
 
     public async Task<string> FetchLiveApiData()
@@ -319,6 +337,61 @@ public class LqwdPluginService
         return responses;
     }
 
+    public async Task ReconnectToHardcodedLsps()
+    {
+
+
+        var nodeUris = new[]
+        {
+            "0220566172d9e324b41ec6f74ca44d377d3faf72ddb310fd263e6d5bcde4882492@185.90.61.24:9735",  // Mutinynet
+            "02cc611df622184f8c23639cf51b75001c07af0731f5569e87474ba3cc44f079ee@192.243.215.105:59735"   // Mainnet
+        };
+
+
+        var stores = await _storeRepository.GetStores(); // IEnumerable<StoreData>
+
+        foreach (var store in stores)
+        {
+            var storeId = store.Id;
+            foreach (var uri in nodeUris)
+            {
+                if (!NodeInfo.TryParse(uri, out var nodeInfo))
+                {
+                    _logger.LogWarning("[LQWD] Invalid node URI format: {Uri}", uri);
+                    continue;
+                }
+
+                try
+                {
+                    var client = GetMasterLightningClient(storeId).GetAwaiter().GetResult();
+                    if (client == null)
+                    {
+                        _logger.LogWarning("[LQWD] No lightning client for store {StoreId}", storeId);
+                        continue;
+                    }
+
+                    var result = client.ConnectTo(nodeInfo).GetAwaiter().GetResult();
+
+                    switch (result)
+                    {
+                        case ConnectionResult.Ok:
+                            _logger.LogInformation("[LQWD] [{StoreId}] Connected to {Uri}", storeId, uri);
+                            break;
+                        case ConnectionResult.CouldNotConnect:
+                            _logger.LogWarning("[LQWD] [{StoreId}] Could not connect to {Uri}", storeId, uri);
+                            break;
+                        default:
+                            _logger.LogWarning("[LQWD] [{StoreId}] Unknown result connecting to {Uri}", storeId, uri);
+                            break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[LQWD] [{StoreId}] Exception connecting to {Uri}", storeId, uri);
+                }
+            }
+        }
+    }
 
 
     public async Task<string> GetLndInfoAsJson(string storeId, CancellationToken cancellationToken = default)

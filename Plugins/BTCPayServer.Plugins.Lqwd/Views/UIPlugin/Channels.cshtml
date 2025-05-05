@@ -3,38 +3,211 @@
 @using BTCPayServer.Plugins.Lqwd.ViewModels
 @using BTCPayServer.Lightning
 
-@model BTCPayServer.Lightning.LightningChannel[]
+@model LspChannelsViewModel;
 
 @{
     ViewData["Title"] = "Channels";
     ViewData.SetActivePage(PluginNavPages.Channels, "Plugin Lqwd");
     ViewData["NavPage"] = PluginNavPages.Channels;
+
 }
 
-<h1>Channels</h1>
+<div id="LspChannelWidget-@Model.StoreId" class="widget store-lightning-balance">
+    <div class="d-flex gap-3 align-items-center justify-content-between mb-2">
+        <h6 text-translate="true">LSP Channels</h6>
+        <span id="lsp-connection-status" class="badge">
+            Loading...
+        </span>
+    </div>
 
-<table class="table table-bordered table-hover table-striped sortable">
-    <thead>
-        <tr>
-            <th>Channel Point</th>
-            <th>Remote Node</th>
-            <th>Capacity (sats)</th>
-            <th>Local Balance (sats)</th>
-            <th>Active</th>
-            <th>Public</th>
-        </tr>
-    </thead>
-    <tbody>
-    @foreach (var ch in Model)
-    {
-        <tr>
-            <td>@ch.ChannelPoint</td>
-            <td>@ch.RemoteNode</td>
-            <td>@ch.Capacity.ToUnit(LightMoneyUnit.Satoshi)</td>
-            <td>@ch.LocalBalance.ToUnit(LightMoneyUnit.Satoshi)</td>
-            <td>@(ch.IsActive ? "Yes" : "No")</td>
-            <td>@(ch.IsPublic ? "Yes" : "No")</td>
-        </tr>
+    <div class="balances d-flex flex-wrap">
+        <div class="balance">
+            <div class="d-flex align-items-baseline gap-1">
+                <h3 class="d-inline-block me-1" data-sensitive>
+                    @Model.TotalLocalBalance
+                </h3>
+                <span class="text-secondary fw-semibold text-nowrap">
+                    sats in LSP channels
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mt-3">
+        <button class="d-inline-flex align-items-center btn btn-link text-primary fw-semibold p-0 ms-n1" type="button"
+            data-bs-toggle="collapse" data-bs-target="#lspChannelDetails" aria-expanded="false"
+            aria-controls="lspChannelDetails">
+            <vc:icon symbol="caret-down" />
+            <span class="ms-1" text-translate="true">Details</span>
+        </button>
+    </div>
+
+    <div class="balance-details collapse mt-3" id="lspChannelDetails">
+        @foreach (var ch in Model.LspChannels)
+        {
+            var total = (long)(ch.LocalBalance.ToUnit(LightMoneyUnit.Satoshi) +
+            ch.RemoteBalance.ToUnit(LightMoneyUnit.Satoshi));
+            var localSat = (long)ch.LocalBalance.ToUnit(LightMoneyUnit.Satoshi);
+            var remoteSat = (long)ch.RemoteBalance.ToUnit(LightMoneyUnit.Satoshi);
+            var localPct = total == 0 ? 0 : (double)localSat / total * 100;
+            var remotePct = 100 - localPct;
+
+            <div class="channel mb-3">
+                <div class="mb-1 fw-semibold small">Channel ID: <code>@ch.ChannelId</code></div>
+                <div class="progress" style="height: 18px;">
+                    <div class="progress-bar bg-success" role="progressbar" style="width: @localPct.ToString("0.##")%;"
+                        aria-valuenow="@localPct" aria-valuemin="0" aria-valuemax="100">
+                        @ch.LocalBalance
+                    </div>
+                    <div class="progress-bar bg-primary" role="progressbar" style="width: @remotePct.ToString("0.##")%;"
+                        aria-valuenow="@remotePct" aria-valuemin="0" aria-valuemax="100">
+                        @ch.RemoteBalance
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+    <div class="mt-4">
+        <h6 class="mb-3 text-center text-secondary fw-semibold">Want to receive more?</h6>
+        <div class="d-flex justify-content-center gap-3">
+            <button class="btn btn-outline-primary btn-lg px-4 py-2 request-order" data-amount="100000">100k
+                sats</button>
+            <button class="btn btn-outline-primary btn-lg px-4 py-2 request-order" data-amount="200000">200k
+                sats</button>
+            <button class="btn btn-outline-primary btn-lg px-4 py-2 request-order" data-amount="1000000">1M
+                sats</button>
+        </div>
+    </div>
+
+
+</div>
+<!-- Payment Modal -->
+<div class="modal fade" id="paymentModal" tabindex="-1" aria-labelledby="paymentModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="paymentModalLabel">Payment Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" id="modalCloseBtn"
+                    disabled></button>
+            </div>
+            <div class="modal-body">
+                <div id="modalContent">
+                    <div class="alert alert-success d-none" id="paymentSuccess">
+                        <strong>Order created successfully.</strong>
+                    </div>
+                    <div class="alert alert-danger d-none" id="paymentError">
+                        <strong>Failed to create order. Please try again.</strong>
+                    </div>
+                    <div id="paymentDetails" class="d-none">
+                        <p><strong>Lightning Invoice:</strong></p>
+                        <code id="modalLnInvoice" class="d-block mb-2"></code>
+
+                        <p><strong>On-Chain Address:</strong></p>
+                        <code id="modalOnchainAddr" class="d-block mb-2"></code>
+
+                        <div class="form-check mt-3">
+                            <input class="form-check-input" type="checkbox" value="" id="copiedCheck">
+                            <label class="form-check-label" for="copiedCheck">
+                                I have copied the invoice and address.
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="modalCloseConfirm" type="button" class="btn btn-primary" data-bs-dismiss="modal"
+                    disabled>Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<script>
+    const storeId = "@Model.StoreId";
+
+    document.addEventListener("DOMContentLoaded", function () {
+        document.querySelectorAll(".request-order").forEach(button => {
+            button.addEventListener("click", async () => {
+                const sats = parseInt(button.dataset.amount);
+
+                try {
+                    const pubKeyRes = await fetch(`/stores/${storeId}/plugins/lqwd/lnd/identity_pubkey`);
+                    const pubKeyData = await pubKeyRes.json();
+                    const pubkey = pubKeyData.nodePubKey;
+
+                    const confirmed = confirm("Do you want to proceed with this order?");
+                    if (!confirmed) return;
+
+                    const refundAddress = ""; // still empty for now
+
+                    const orderData = {
+                        client_balance_sat: 0,
+                        lsp_balance_sat: sats,
+                        public_key: pubkey,
+                        refund_onchain_address: refundAddress,
+                        channel_expiry_blocks: 144,
+                        token: "",
+                        announce_channel: false,
+                        required_channel_confirmations: 2,
+                        funding_confirms_within_blocks: 3
+                    };
+
+                    const res = await fetch(`/stores/${storeId}/plugins/lqwd/create-order`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(orderData)
+                    });
+
+                    const data = await res.json();
+
+                    // Show success modal
+                    document.getElementById("paymentSuccess").classList.remove("d-none");
+                    document.getElementById("paymentError").classList.add("d-none");
+                    document.getElementById("paymentDetails").classList.remove("d-none");
+                    document.getElementById("modalLnInvoice").innerText = data.payment?.bolt11?.invoice || "N/A";
+                    document.getElementById("modalOnchainAddr").innerText = data.payment?.onchain?.onchainAddress || "N/A";
+                    new bootstrap.Modal(document.getElementById('paymentModal')).show();
+
+                } catch (err) {
+                    document.getElementById("paymentError").classList.remove("d-none");
+                    document.getElementById("paymentSuccess").classList.add("d-none");
+                    document.getElementById("paymentDetails").classList.add("d-none");
+                    new bootstrap.Modal(document.getElementById('paymentModal')).show();
+                    console.error("Order creation failed", err);
+                }
+
+            });
+        });
+    });
+    document.getElementById("copiedCheck").addEventListener("change", function () {
+        document.getElementById("modalCloseConfirm").disabled = !this.checked;
+        document.getElementById("modalCloseBtn").disabled = !this.checked;
+    });
+    function refreshLspConnectionStatus() {
+        fetch(`/stores/${storeId}/plugins/lqwd/lnd/islspsconnected`)
+            .then(res => res.json())
+            .then(data => {
+                const el = document.getElementById('lsp-connection-status');
+                if (data.connected) {
+                    el.className = "badge bg-success";
+                    el.textContent = "Connected";
+                } else {
+                    el.className = "badge bg-danger";
+                    el.textContent = "Not Connected";
+                }
+            })
+            .catch(err => {
+                const el = document.getElementById('lsp-connection-status');
+                el.className = "badge bg-warning text-dark";
+                el.textContent = "⚠ Error";
+                console.error("Failed to fetch connection status", err);
+            });
     }
-    </tbody>
-</table>
+
+    document.addEventListener("DOMContentLoaded", () => {
+        refreshLspConnectionStatus();
+        setInterval(refreshLspConnectionStatus, 5000);
+    });
+
+</script>
