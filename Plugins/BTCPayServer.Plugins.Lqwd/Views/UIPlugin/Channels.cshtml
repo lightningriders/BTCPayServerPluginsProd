@@ -70,11 +70,11 @@
     <div class="mt-4">
         <h6 class="mb-3 text-center text-secondary fw-semibold">Want to receive more?</h6>
         <div class="d-flex justify-content-center gap-3">
-            <button class="btn btn-outline-primary btn-lg px-4 py-2 request-order" data-amount="100000">100k
-                sats</button>
-            <button class="btn btn-outline-primary btn-lg px-4 py-2 request-order" data-amount="200000">200k
+            <button class="btn btn-outline-primary btn-lg px-4 py-2 request-order" data-amount="500000">500k
                 sats</button>
             <button class="btn btn-outline-primary btn-lg px-4 py-2 request-order" data-amount="1000000">1M
+                sats</button>
+            <button class="btn btn-outline-primary btn-lg px-4 py-2 request-order" data-amount="2000000">2M
                 sats</button>
         </div>
     </div>
@@ -99,6 +99,9 @@
                         <strong>Failed to create order. Please try again.</strong>
                     </div>
                     <div id="paymentDetails" class="d-none">
+                        <p><strong>Amount:</strong></p>
+                        <code id="modalOnchainAmount" class="d-block mb-2"></code>
+
                         <p><strong>Lightning Invoice:</strong></p>
                         <code id="modalLnInvoice" class="d-block mb-2"></code>
 
@@ -167,6 +170,7 @@
                     document.getElementById("paymentDetails").classList.remove("d-none");
                     document.getElementById("modalLnInvoice").innerText = data.payment?.bolt11?.invoice || "N/A";
                     document.getElementById("modalOnchainAddr").innerText = data.payment?.onchain?.onchainAddress || "N/A";
+                    document.getElementById("modalOnchainAmount").innerText = data.payment?.onchain?.orderTotalSat || "N/A";
                     new bootstrap.Modal(document.getElementById('paymentModal')).show();
 
                 } catch (err) {
