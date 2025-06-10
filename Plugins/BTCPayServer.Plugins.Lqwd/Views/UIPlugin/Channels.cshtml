@@ -99,14 +99,32 @@
                         <strong>Failed to create order. Please try again.</strong>
                     </div>
                     <div id="paymentDetails" class="d-none">
-                        <p><strong>Amount:</strong></p>
-                        <code id="modalOnchainAmount" class="d-block mb-2"></code>
-
-                        <p><strong>Lightning Invoice:</strong></p>
-                        <code id="modalLnInvoice" class="d-block mb-2"></code>
-
-                        <p><strong>On-Chain Address:</strong></p>
-                        <code id="modalOnchainAddr" class="d-block mb-2"></code>
+                        <ul class="nav nav-tabs" id="paymentTab" role="tablist">
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link active" id="lightning-tab" data-bs-toggle="tab"
+                                    data-bs-target="#lightning" type="button" role="tab">⚡ Lightning</button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="onchain-tab" data-bs-toggle="tab" data-bs-target="#onchain"
+                                    type="button" role="tab">₿ On-chain</button>
+                            </li>
+                        </ul>
+                        <div class="tab-content mt-3" id="paymentTabContent">
+                            <!-- Lightning tab -->
+                            <div class="tab-pane fade show active" id="lightning" role="tabpanel">
+                                <p><strong>Lightning Invoice:</strong></p>
+                                <code id="modalLnInvoice" class="d-block mb-2"></code>
+                                <div id="lightningQr"></div>
+                            </div>
+                            <!-- On-chain tab -->
+                            <div class="tab-pane fade" id="onchain" role="tabpanel">
+                                <p><strong>Amount:</strong></p>
+                                <code id="modalOnchainAmount" class="d-block mb-2"></code>
+                                <p><strong>On-chain Address:</strong></p>
+                                <code id="modalOnchainAddr" class="d-block mb-2"></code>
+                                <div id="onchainQr"></div>
+                            </div>
+                        </div>
 
                         <div class="form-check mt-3">
                             <input class="form-check-input" type="checkbox" value="" id="copiedCheck">
@@ -115,6 +133,7 @@
                             </label>
                         </div>
                     </div>
+
                 </div>
             </div>
             <div class="modal-footer">
@@ -168,9 +187,35 @@
                     document.getElementById("paymentSuccess").classList.remove("d-none");
                     document.getElementById("paymentError").classList.add("d-none");
                     document.getElementById("paymentDetails").classList.remove("d-none");
-                    document.getElementById("modalLnInvoice").innerText = data.payment?.bolt11?.invoice || "N/A";
-                    document.getElementById("modalOnchainAddr").innerText = data.payment?.onchain?.onchainAddress || "N/A";
-                    document.getElementById("modalOnchainAmount").innerText = data.payment?.onchain?.orderTotalSat || "N/A";
+                    const lnInvoice = data.payment?.bolt11?.invoice || "";
+                    const onchainAddress = data.payment?.onchain?.onchainAddress || "";
+                    const onchainAmount = data.payment?.onchain?.orderTotalSat || "";
+
+                    document.getElementById("modalLnInvoice").innerText = lnInvoice;
+                    document.getElementById("modalOnchainAddr").innerText = onchainAddress;
+                    document.getElementById("modalOnchainAmount").innerText = onchainAmount;
+
+                    // Clear any existing QR codes
+                    document.getElementById("lightningQr").innerHTML = "";
+                    document.getElementById("onchainQr").innerHTML = "";
+
+                    // Generate new QR codes
+                    if (lnInvoice) {
+                        new QRCode(document.getElementById("lightningQr"), {
+                            text: lnInvoice,
+                            width: 256,
+                            height: 256,
+                        });
+                    }
+                    if (onchainAddress) {
+                        const onchainURI = `bitcoin:${onchainAddress}?amount=${(onchainAmount / 100_000_000).toFixed(8)}`;
+                        new QRCode(document.getElementById("onchainQr"), {
+                            text: onchainURI,
+                            width: 256,
+                            height: 256,
+                        });
+                    }
+
                     new bootstrap.Modal(document.getElementById('paymentModal')).show();
 
                 } catch (err) {
@@ -215,3 +260,4 @@
     });
 
 </script>
+<script src="~/js/qrcode.js" asp-append-version="true"></script>
