@@ -218,13 +218,6 @@ namespace BTCPayServer.Plugins.Lqwd
         }
 
 
-        [HttpGet("peers")]
-        public async Task<IActionResult> GetPeers(string storeId)
-        {
-            var peers = await _pluginService.GetConnectedPeerPubKeys(storeId);
-            return new JsonResult(new { peers });
-        }
-
         [HttpGet("test")]
         public async Task<IActionResult> Test(string storeId)
         {

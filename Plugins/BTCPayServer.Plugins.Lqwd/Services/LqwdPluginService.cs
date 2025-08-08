@@ -80,8 +80,27 @@ public class LqwdPluginService
         _lightningNetworkOptions = lightningNetworkOptions;
     }
 
+    public string? GetLspsUrlFromEnv()
+    {
+        var envValue = Environment.GetEnvironmentVariable("BTCPAY_LQWDLSPS");
+        if (!string.IsNullOrEmpty(envValue))
+        {
+            _logger.LogInformation($"[LQWD] Using LSP URL from ENV: {envValue}");
+            return envValue.TrimEnd('/');
+        }
+        return null;
+    }
+
     public async Task<string?> GetActiveLspsUrl()
     {
+        // Priority 1: Command-line or environment override
+        var overrideUrl = GetLspsUrlFromEnv();
+        if (!string.IsNullOrEmpty(overrideUrl))
+        {
+            return overrideUrl;
+        }
+
+        // Fallback: use logic based on network
         var network = _configuration.GetValue<string>("network")?.ToLowerInvariant() ?? "mainnet";
 
         string activeLspLink = network switch
@@ -143,110 +162,123 @@ public class LqwdPluginService
 
     public async Task<bool> IsLspsConnected(string storeId)
     {
-        var lightningClient = await GetMasterLightningClient(storeId);
-        if (lightningClient is not BTCPayServer.Lightning.LND.LndClient lndClient)
-            return false;
-
-        var swaggerClient = lndClient.SwaggerClient;
-        if (swaggerClient == null)
-            return false;
-
-        // Step 1: Get connected peers
-        Console.WriteLine("Step 1: Get connected peers");
-        //TODO: working but converted to json and parsed. fix it later!!
-        var peerResponse = await swaggerClient.ListPeersAsync();
-        Console.WriteLine($"peerResponse.Peers: {peerResponse.ToJson()}");
-        var peerJson = JObject.Parse(peerResponse.ToJson()); // Peers is a string
-        var connectedPubkeys = peerJson["peers"]
-            .Select(p => (string?)p["pub_key"])
-            .Where(pubkey => !string.IsNullOrEmpty(pubkey))
-            .ToHashSet();
-
-        Console.WriteLine($"peer type: {peerResponse.Peers.FirstOrDefault()?.GetType().FullName}");
-        Console.WriteLine("connectedPubkeys: " + string.Join(", ", connectedPubkeys));
-        foreach (var peer in peerResponse.Peers)
+        // Step 1: Get your own node's pubkey
+        var myPubkey = await GetNodePubKey(storeId);
+        if (string.IsNullOrEmpty(myPubkey))
         {
-            Console.WriteLine($"Peer raw: {peer}");
-            Console.WriteLine($"Peer pubkey: {peer?.GetType().GetProperty("pub_key")?.GetValue(peer)}");
+            Console.WriteLine("Failed to fetch node pubkey");
+            return false;
         }
 
-        // Step 2: Get LSP info
-        Console.WriteLine("Step 2: Get LSP info");
-        var lspInfoJson = await FetchLiveApiData();
-        if (string.IsNullOrEmpty(lspInfoJson) || lspInfoJson == "{}")
-            return false;
-
-        Console.WriteLine($"lspInfoJson {lspInfoJson}");
-
-        var info = JObject.Parse(lspInfoJson);
-        var uris = info["uris"] as JArray;
-        Console.WriteLine($"uris {uris}");
-        var firstUri = uris?.FirstOrDefault()?.ToString();
-        Console.WriteLine($"firstUri {firstUri}");
-
-        if (string.IsNullOrEmpty(firstUri))
-            return false;
-
-        var pubkey = firstUri.Split('@')[0];
-        Console.WriteLine($"pubkey {pubkey}");
-
-        return connectedPubkeys.Contains(pubkey);
-    }
-
-
-
-    public async Task<string> GetConnectedPeerPubKeys(string storeId, CancellationToken cancellationToken = default)
-    {
-        var lightningClient = await GetMasterLightningClient(storeId);
-        if (lightningClient is null)
+        // Step 2: Get LSP URL
+        var lspsUrl = await GetActiveLspsUrl();
+        if (string.IsNullOrEmpty(lspsUrl))
         {
-            return JsonConvert.SerializeObject(new { error = "LND client not available for store." });
+            Console.WriteLine("LSP URL is missing");
+            return false;
         }
 
-        return await ListPeersFromStore(lightningClient);
+        // Step 3: Make GET request to /api/v1/check_peer?pubkey=<your pubkey>
+        try
+        {
+            var fullUrl = $"{lspsUrl}/api/v1/check_peer?pubkey={myPubkey}";
+            Console.WriteLine($"Calling: {fullUrl}");
+
+            var response = await _httpClient.GetAsync(fullUrl);
+            response.EnsureSuccessStatusCode();
+
+            var responseJson = await response.Content.ReadAsStringAsync();
+            var result = JsonConvert.DeserializeObject<Dictionary<string, bool>>(responseJson);
+
+            if (result != null && result.TryGetValue("connected", out var isConnected))
+            {
+                Console.WriteLine($"Connected to LSP? {isConnected}");
+                return isConnected;
+            }
+
+            Console.WriteLine("Invalid response structure");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error checking LSP connection: {ex.Message}");
+            return false;
+        }
     }
+
 
     public async Task<string?> GetNodePubKey(string storeId)
     {
+        _logger.LogInformation("[LQWD] Starting GetNodePubKey for store: {StoreId}", storeId);
+
         var lightningClient = await GetMasterLightningClient(storeId);
-        if (lightningClient is not BTCPayServer.Lightning.LND.LndClient lndClient)
-            return null;
-
-        var swaggerClient = lndClient.SwaggerClient;
-        if (swaggerClient == null)
-            return null;
-
-        var info = await swaggerClient.GetInfoAsync();
-        return info.Identity_pubkey;
-    }
-
-
-    public async Task<string> ListPeersFromStore(ILightningClient client)
-    {
-        // find out that client is BTCPayServer.Lightning.LND.LndClient with:
-        //  Console.WriteLine(lightningConnectionString.GetType().FullName);
-        if (client is BTCPayServer.Lightning.LND.LndClient lndClient)
+        if (lightningClient == null)
         {
-            var swaggerClient = lndClient.SwaggerClient;
+            _logger.LogWarning("[LQWD] GetMasterLightningClient returned null for store: {StoreId}", storeId);
+            return null;
+        }
 
-            if (swaggerClient != null)
+        var url = await GetActiveLspsUrl();
+        if (string.IsNullOrEmpty(url))
+        {
+            _logger.LogWarning("[LQWD] GetActiveLspsUrl returned null or empty.");
+            return null;
+        }
+
+        try
+        {
+            _logger.LogInformation("[LQWD] Creating invoice to extract pubkey");
+            var invoice = await lightningClient.CreateInvoice(new CreateInvoiceParams(
+                amount: 1,
+                description: "get pubkey",
+                expiry: TimeSpan.FromSeconds(60)
+            ));
+
+            var bolt11 = invoice.BOLT11;
+            _logger.LogInformation("[LQWD] Created invoice: {Bolt11}", bolt11);
+
+            var requestBody = JsonConvert.SerializeObject(new { invoice = bolt11 });
+            _logger.LogDebug("[LQWD] Sending decode request to LSPS: {Url}/api/v1/decode, body: {Body}", url, requestBody);
+
+            var content = new StringContent(requestBody, Encoding.UTF8, "application/json");
+            var response = await _httpClient.PostAsync($"{url}/api/v1/decode", content);
+
+            _logger.LogInformation("[LQWD] Decode API status code: {StatusCode}", response.StatusCode);
+            response.EnsureSuccessStatusCode();
+
+            var responseJson = await response.Content.ReadAsStringAsync();
+            _logger.LogDebug("[LQWD] Decode API response: {ResponseJson}", responseJson);
+
+            var result = JsonConvert.DeserializeObject<Dictionary<string, string>>(responseJson);
+
+            if (result == null)
             {
-                var peers = await swaggerClient.ListPeersAsync();
-                // Console.WriteLine($"Connected to: {peers.ToJson()}");
-                return peers.ToJson();
+                _logger.LogWarning("[LQWD] Decode API response is null after deserialization.");
+                return null;
+            }
+
+            if (result.TryGetValue("payee_pubkey", out var pubkey))
+            {
+                _logger.LogInformation("[LQWD] Extracted pubkey from LSPS: {PubKey}", pubkey);
+                return pubkey;
             }
             else
             {
-                // Console.WriteLine("LND client is not using REST.");
-                return JsonConvert.SerializeObject(new { error = "LND client is not using REST." });
+                _logger.LogWarning("[LQWD] 'payee_pubkey' not found in LSPS decode response.");
             }
+
+            return null;
         }
-        else
+        catch (Exception ex)
         {
-            // Console.WriteLine("This is not an LND client.");
-            return JsonConvert.SerializeObject(new { error = "This is not an LND client" });
+            _logger.LogError(ex, "[LQWD] Exception occurred while getting pubkey for store: {StoreId}", storeId);
+            return null;
         }
     }
+
+
+
+
 
 
     public async Task<ILightningClient?> GetMasterLightningClient(string storeId)
@@ -339,57 +371,12 @@ public class LqwdPluginService
 
     public async Task ReconnectToHardcodedLsps()
     {
-
-
-        var nodeUris = new[]
-        {
-            "0220566172d9e324b41ec6f74ca44d377d3faf72ddb310fd263e6d5bcde4882492@185.90.61.24:9735",  // Mutinynet
-            "02cc611df622184f8c23639cf51b75001c07af0731f5569e87474ba3cc44f079ee@192.243.215.105:59735"   // Mainnet
-        };
-
-
         var stores = await _storeRepository.GetStores(); // IEnumerable<StoreData>
 
         foreach (var store in stores)
         {
             var storeId = store.Id;
-            foreach (var uri in nodeUris)
-            {
-                if (!NodeInfo.TryParse(uri, out var nodeInfo))
-                {
-                    _logger.LogWarning("[LQWD] Invalid node URI format: {Uri}", uri);
-                    continue;
-                }
-
-                try
-                {
-                    var client = GetMasterLightningClient(storeId).GetAwaiter().GetResult();
-                    if (client == null)
-                    {
-                        _logger.LogWarning("[LQWD] No lightning client for store {StoreId}", storeId);
-                        continue;
-                    }
-
-                    var result = client.ConnectTo(nodeInfo).GetAwaiter().GetResult();
-
-                    switch (result)
-                    {
-                        case ConnectionResult.Ok:
-                            _logger.LogInformation("[LQWD] [{StoreId}] Connected to {Uri}", storeId, uri);
-                            break;
-                        case ConnectionResult.CouldNotConnect:
-                            _logger.LogWarning("[LQWD] [{StoreId}] Could not connect to {Uri}", storeId, uri);
-                            break;
-                        default:
-                            _logger.LogWarning("[LQWD] [{StoreId}] Unknown result connecting to {Uri}", storeId, uri);
-                            break;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "[LQWD] [{StoreId}] Exception connecting to {Uri}", storeId, uri);
-                }
-            }
+            ConnectToActiveLspsUris(storeId);
         }
     }
 
