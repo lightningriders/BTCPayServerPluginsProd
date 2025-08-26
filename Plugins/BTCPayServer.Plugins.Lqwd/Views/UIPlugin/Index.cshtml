@@ -108,6 +108,7 @@
             <th>Local Balance (sats)</th>
             <th>Active</th>
             <th>Public</th>
+            <th>Actions</th>
         </tr>
     </thead>
     <tbody>
@@ -120,6 +121,12 @@
                 <td>@ch.LocalBalance.ToUnit(LightMoneyUnit.Satoshi)</td>
                 <td>@(ch.IsActive ? "Yes" : "No")</td>
                 <td>@(ch.IsPublic ? "Yes" : "No")</td>
+                <td>
+                    <button class="btn btn-sm btn-danger" onclick="closeChannel('@Html.Raw(ch.ChannelPoint)'.trim(), this)"
+                        title="Close channel">
+                        Close
+                    </button>
+                </td>
             </tr>
         }
     </tbody>
@@ -192,6 +199,49 @@
 
 <script>
     const storeId = "@storeId";
+
+    async function closeChannel(channelPoint, btn) {
+        if (!channelPoint) {
+            alert("Channel point is missing.");
+            return;
+        }
+        const ok = confirm(`Close channel ${channelPoint}? This action cannot be undone.`);
+        if (!ok) return;
+
+        // UI: disable button while processing
+        const prevText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = "Closing…";
+
+        try {
+            const resp = await fetch(`/stores/${storeId}/plugins/lqwd/close-channel`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ channel_point: channelPoint })
+            });
+
+            const data = await resp.json().catch(() => ({}));
+
+            if (!resp.ok) {
+                const msg = data?.detail || data?.error || `HTTP ${resp.status}`;
+                throw new Error(msg);
+            }
+
+            const txid = data?.closing_txid || "(pending)";
+            alert(`Channel close initiated.\nClosing txid: ${txid}`);
+            // Option A: reload to refresh the list
+            location.reload();
+            // Option B: instead of reload, you could remove the row or mark it "closing..."
+        } catch (err) {
+            console.error(err);
+            alert(`Failed to close channel: ${err.message || err}`);
+            btn.disabled = false;
+            btn.textContent = prevText;
+        }
+    }
+
     const fetchIdentityPubkey = async () => {
         try {
             const response = await fetch(`/stores/${storeId}/plugins/lqwd/lnd/identity_pubkey`);
@@ -252,7 +302,7 @@
                 connectBtn.classList.add("disabled");
                 connectBtn.setAttribute("aria-disabled", "true");
                 connectBtn.style.pointerEvents = "none";
-            } 
+            }
             else {
                 statusBadge.className = "badge bg-danger";
                 statusBadge.textContent = "❌ Not connected to LSP";

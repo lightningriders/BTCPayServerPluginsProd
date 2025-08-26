@@ -408,19 +408,77 @@ public class LqwdPluginService
         return JsonConvert.SerializeObject(result, Formatting.Indented); // ← formatted JSON
     }
 
-    public async Task<LightningChannel[]> GetChannels(string storeId, CancellationToken cancellationToken = default)
+    public async Task<CloseChannelResult?> CloseChannelViaLspsAsync(
+    string storeId,
+    string channelPoint,
+    CancellationToken ct = default)
     {
-        _logger.LogInformation("GetChannelsAsJson Lqwd Plugin");
+        _logger.LogInformation("CloseChannelViaLspsAsync storeId={StoreId} channel_point={ChannelPoint}", storeId, channelPoint);
 
-        var lightningClient = await GetMasterLightningClient(storeId);
-        if (lightningClient is null)
+        var url = await GetActiveLspsUrl();
+        if (string.IsNullOrEmpty(url))
         {
+            _logger.LogWarning("No active LSP URL configured.");
             return null;
         }
 
-        var channels = await lightningClient.ListChannels(cancellationToken);
+        // Body: { "channel_point": "txid:index" }
+        var payload = new { channel_point = channelPoint };
+        var json = JsonConvert.SerializeObject(payload);
+        using var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-        return channels;
+        using var resp = await _httpClient.PostAsync($"{url}/api/v1/closechannel", content, ct);
+        var respBody = await resp.Content.ReadAsStringAsync(ct);
+
+        if (!resp.IsSuccessStatusCode)
+        {
+            _logger.LogError("LQWD closechannel failed {Code}: {Body}", (int)resp.StatusCode, respBody);
+            throw new Exception($"LQWD closechannel error {(int)resp.StatusCode}");
+        }
+
+        // Example upstream response (from your screenshot):
+        // {
+        //   "details": "{\n  \"closing_txid\": \"9df395...ff54\"\n}\n",
+        //   "status": "Channel close initiated"
+        // }
+        var root = JsonConvert.DeserializeObject<JObject>(respBody);
+        var status = root?["status"]?.Value<string>() ?? "unknown";
+        var detailsRaw = root?["details"]?.Value<string>();
+
+        string? closingTxId = null;
+        if (!string.IsNullOrWhiteSpace(detailsRaw))
+        {
+            // `details` itself is a JSON string, so parse again
+            var details = JsonConvert.DeserializeObject<JObject>(detailsRaw);
+            closingTxId = details?["closing_txid"]?.Value<string>();
+        }
+
+        return new CloseChannelResult
+        {
+            Status = status,
+            ClosingTxId = closingTxId
+        };
+    }
+
+
+    public async Task<LightningChannel[]> GetChannels(string storeId, CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("GetChannels Lqwd Plugin");
+
+        var lightningClient = await GetMasterLightningClient(storeId);
+        if (lightningClient is null)
+            return Array.Empty<LightningChannel>();
+
+        try
+        {
+            var channels = await lightningClient.ListChannels(cancellationToken);
+            return channels ?? Array.Empty<LightningChannel>();
+        }
+        catch (NullReferenceException ex)
+        {
+            _logger.LogWarning(ex, "ListChannels() threw NRE. This often happens on CLN when a channel is pending (no short_channel_id yet). Returning empty list.");
+            return Array.Empty<LightningChannel>();
+        }
     }
 
     public async Task<string> TestData(string storeId)

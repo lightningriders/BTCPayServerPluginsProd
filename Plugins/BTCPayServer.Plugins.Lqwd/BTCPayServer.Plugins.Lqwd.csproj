@@ -8,7 +8,7 @@
   <PropertyGroup>
     <Product>LQWD LSPS</Product>
     <Description>A lightening service provider.</Description>
-    <Version>0.1.10</Version>
+    <Version>0.1.11</Version>
   </PropertyGroup>
 
   <!-- Plugin development properties -->

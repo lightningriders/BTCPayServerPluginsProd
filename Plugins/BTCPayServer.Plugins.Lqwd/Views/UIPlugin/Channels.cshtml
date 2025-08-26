@@ -112,15 +112,27 @@
                         <div class="tab-content mt-3" id="paymentTabContent">
                             <!-- Lightning tab -->
                             <div class="tab-pane fade show active" id="lightning" role="tabpanel">
-                                <p><strong>Lightning Invoice:</strong></p>
+                                <p class="mb-1 d-flex justify-content-between align-items-center">
+                                    <strong>Lightning Invoice:</strong>
+                                    <a href="javascript:void(0)" onclick="copyText('modalLnInvoice')" title="Copy">
+                                        📋
+                                    </a>
+                                </p>
                                 <code id="modalLnInvoice" class="d-block mb-2"></code>
                                 <div id="lightningQr"></div>
                             </div>
+
                             <!-- On-chain tab -->
                             <div class="tab-pane fade" id="onchain" role="tabpanel">
                                 <p><strong>Amount:</strong></p>
                                 <code id="modalOnchainAmount" class="d-block mb-2"></code>
-                                <p><strong>On-chain Address:</strong></p>
+
+                                <p class="mb-1 d-flex justify-content-between align-items-center">
+                                    <strong>On-chain Address:</strong>
+                                    <a href="javascript:void(0)" onclick="copyText('modalOnchainAddr')" title="Copy">
+                                        📋
+                                    </a>
+                                </p>
                                 <code id="modalOnchainAddr" class="d-block mb-2"></code>
                                 <div id="onchainQr"></div>
                             </div>
@@ -147,6 +159,11 @@
 
 <script>
     const storeId = "@Model.StoreId";
+
+    function copyText(id) {
+        const text = document.getElementById(id).innerText;
+        navigator.clipboard.writeText(text);
+    }
 
     document.addEventListener("DOMContentLoaded", function () {
         document.querySelectorAll(".request-order").forEach(button => {

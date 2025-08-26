@@ -1,3 +1,4 @@
+using System; 
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
@@ -64,6 +65,37 @@ namespace BTCPayServer.Plugins.Lqwd
         {
             return View("MissingLnd");
         }
+
+        [HttpPost("close-channel")]
+        public async Task<IActionResult> CloseChannel(
+            [FromRoute] string storeId,
+            [FromBody] CloseChannelRequest body)
+        {
+            if (body is null || string.IsNullOrWhiteSpace(body.ChannelPoint))
+                return BadRequest(new { error = "channel_point is required (format: txid:index)" });
+
+            try
+            {
+                var result = await _pluginService.CloseChannelViaLspsAsync(storeId, body.ChannelPoint);
+                if (result is null)
+                    return StatusCode(502, new { error = "No active LSP URL or empty response." });
+
+                return Ok(new
+                {
+                    status = result.Status,
+                    closing_txid = result.ClosingTxId
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(502, new
+                {
+                    error = "Close channel failed",
+                    detail = ex.Message
+                });
+            }
+        }
+
 
         [HttpGet("channels")]
         public async Task<IActionResult> Channels(string storeId)
